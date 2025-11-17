@@ -6,6 +6,7 @@ use axum::{
 use serde::{Serialize,Deserialize};
 use sysinfo::System;
 use chrono::Utc;
+use tower_http::cors::{CorsLayer, Any};
 
 // This is like a TypeScript interface
 #[derive(Serialize)]
@@ -105,12 +106,18 @@ async fn get_metrics() -> Json<SystemMetrics> {
 }
 #[tokio::main]
 async fn main() {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+    
     // Create router (like Express app)
     let app = Router::new()
         .route("/", get(root))  
         .route("/health", get(health_check))
         .route("/api/echo", post(echo_handler))
-        .route("/api/metrics", get(get_metrics));
+        .route("/api/metrics", get(get_metrics))
+        .layer(cors);    
 
     // Start server on port 8000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8000")
