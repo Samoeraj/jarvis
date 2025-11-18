@@ -1,12 +1,17 @@
 use axum::{
-    routing::{get,post},
+    routing::{get, post},
     Router,
     Json,
+    extract::ws::{WebSocket, WebSocketUpgrade},
+    response::Response,
 };
-use serde::{Serialize,Deserialize};
+use serde::{Serialize, Deserialize};
 use sysinfo::System;
-use chrono::Utc;
 use tower_http::cors::{CorsLayer, Any};
+use chrono::Utc;
+use std::time::Duration;
+use tokio::time::sleep;
+use futures::{sink::SinkExt, stream::StreamExt};
 
 // This is like a TypeScript interface
 #[derive(Serialize)]
@@ -104,6 +109,60 @@ async fn get_metrics() -> Json<SystemMetrics> {
         timestamp,
     })
 }
+
+async fn websocket_handler(ws: WebSocketUpgrade) -> Response {
+    ws.on_upgrade(handle_socket)
+}
+
+async fn handle_socket(mut socket: WebSocket) {
+    println!("🔌 WebSocket client connected");
+    
+    loop {
+        // Collect metrics
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        
+        let cpu_usage = sys.global_cpu_info().cpu_usage();
+        let memory_total = sys.total_memory();
+        let memory_used = sys.used_memory();
+        let memory_available = sys.available_memory();
+        let cpu_count = sys.cpus().len();
+        
+        let bytes_to_gb = |bytes: u64| bytes as f32 / 1_073_741_824.0;
+        
+        let metrics = SystemMetrics {
+            memory_total_bytes: memory_total,
+            memory_used_bytes: memory_used,
+            memory_available_bytes: memory_available,
+            memory_total_gb: bytes_to_gb(memory_total),
+            memory_used_gb: bytes_to_gb(memory_used),
+            memory_available_gb: bytes_to_gb(memory_available),
+            memory_usage_percent: (memory_used as f32 / memory_total as f32) * 100.0,
+            cpu_usage,
+            cpu_count,
+            timestamp: Utc::now().to_rfc3339(),
+        };
+        
+        // Serialize to JSON
+        let json = match serde_json::to_string(&metrics) {
+            Ok(j) => j,
+            Err(e) => {
+                eprintln!("Failed to serialize metrics: {}", e);
+                break;
+            }
+        };
+        
+        // Send to client
+        if socket.send(axum::extract::ws::Message::Text(json)).await.is_err() {
+            println!("❌ Client disconnected");
+            break;
+        }
+        
+        // Wait 2 seconds before next update
+        sleep(Duration::from_secs(2)).await;
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cors = CorsLayer::new()
@@ -117,6 +176,7 @@ async fn main() {
         .route("/health", get(health_check))
         .route("/api/echo", post(echo_handler))
         .route("/api/metrics", get(get_metrics))
+        .route("/ws", get(websocket_handler)) 
         .layer(cors);    
 
     // Start server on port 8000
