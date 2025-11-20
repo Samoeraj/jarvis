@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface SystemMetrics {
@@ -22,48 +22,73 @@ interface HistoryPoint {
 export default function Dashboard() {
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [connected, setConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const fetchMetrics = async () => {
-      try {
-        const response = await fetch('http://localhost:8000/api/metrics');
-        const data = await response.json();
-        setMetrics(data);
-        setLoading(false);
+    // Connect to WebSocket
+    const connectWebSocket = () => {
+      const ws = new WebSocket('ws://localhost:8000/ws');
+      wsRef.current = ws;
 
-        // Add to history (keep last 30 data points = 60 seconds)
-        const timestamp = new Date(data.timestamp);
-        const timeString = timestamp.toLocaleTimeString();
-        
-        setHistory((prev) => {
-          const newHistory = [
-            ...prev,
-            {
-              time: timeString,
-              cpu: parseFloat(data.cpu_usage.toFixed(1)),
-              memory: parseFloat(data.memory_usage_percent.toFixed(1)),
-            },
-          ];
-          
-          // Keep only last 30 points
-          return newHistory.slice(-30);
-        });
-      } catch (error) {
-        console.error('Failed to fetch metrics:', error);
-        setLoading(false);
-      }
+      ws.onopen = () => {
+        console.log('✅ WebSocket connected');
+        setConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data: SystemMetrics = JSON.parse(event.data);
+          setMetrics(data);
+
+          // Add to history
+          const timestamp = new Date(data.timestamp);
+          const timeString = timestamp.toLocaleTimeString();
+
+          setHistory((prev) => {
+            const newHistory = [
+              ...prev,
+              {
+                time: timeString,
+                cpu: parseFloat(data.cpu_usage.toFixed(1)),
+                memory: parseFloat(data.memory_usage_percent.toFixed(1)),
+              },
+            ];
+            // Keep only last 30 points
+            return newHistory.slice(-30);
+          });
+        } catch (error) {
+          console.error('Failed to parse metrics:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('❌ WebSocket error:', error);
+        setConnected(false);
+      };
+
+      ws.onclose = () => {
+        console.log('🔌 WebSocket closed, reconnecting in 3s...');
+        setConnected(false);
+        // Auto-reconnect after 3 seconds
+        setTimeout(connectWebSocket, 3000);
+      };
     };
 
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 2000);
-    return () => clearInterval(interval);
+    connectWebSocket();
+
+    // Cleanup on unmount
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
   }, []);
 
-  if (loading) {
+  if (!connected && !metrics) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white text-2xl">Loading JARVIS...</div>
+        <div className="text-white text-2xl">Connecting to JARVIS...</div>
       </div>
     );
   }
@@ -79,9 +104,18 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold mb-2">🤖 JARVIS System Monitor</h1>
-        <p className="text-gray-400">Real-time system metrics dashboard</p>
+      <div className="mb-8 flex justify-between items-center">
+        <div>
+          <h1 className="text-4xl font-bold mb-2">🤖 JARVIS System Monitor</h1>
+          <p className="text-gray-400">Real-time system metrics via WebSocket</p>
+        </div>
+        {/* Connection Status */}
+        <div className="flex items-center gap-2">
+          <div className={`w-3 h-3 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+          <span className="text-sm text-gray-400">
+            {connected ? 'Connected' : 'Disconnected'}
+          </span>
+        </div>
       </div>
 
       {/* Metrics Grid */}
@@ -107,7 +141,7 @@ export default function Dashboard() {
           <h3 className="text-gray-400 text-sm mb-2">Memory Usage</h3>
           <p className="text-3xl font-bold text-purple-400">{metrics.memory_usage_percent.toFixed(1)}%</p>
           <div className="w-full bg-gray-700 rounded-full h-2 mt-4">
-            <div 
+            <div
               className="bg-purple-500 h-2 rounded-full transition-all duration-300"
               style={{ width: `${metrics.memory_usage_percent}%` }}
             />
@@ -130,28 +164,28 @@ export default function Dashboard() {
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={history}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis 
-                dataKey="time" 
+              <XAxis
+                dataKey="time"
                 stroke="#9CA3AF"
                 tick={{ fontSize: 12 }}
               />
-              <YAxis 
+              <YAxis
                 stroke="#9CA3AF"
                 tick={{ fontSize: 12 }}
                 domain={[0, 100]}
               />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: '#1F2937', 
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#1F2937',
                   border: '1px solid #374151',
                   borderRadius: '8px'
                 }}
               />
               <Legend />
-              <Line 
-                type="monotone" 
-                dataKey="cpu" 
-                stroke="#60A5FA" 
+              <Line
+                type="monotone"
+                dataKey="cpu"
+                stroke="#60A5FA"
                 strokeWidth={2}
                 name="CPU %"
                 dot={false}
@@ -166,28 +200,28 @@ export default function Dashboard() {
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={history}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis 
-                dataKey="time" 
+              <XAxis
+                dataKey="time"
                 stroke="#9CA3AF"
                 tick={{ fontSize: 12 }}
               />
-              <YAxis 
+              <YAxis
                 stroke="#9CA3AF"
                 tick={{ fontSize: 12 }}
                 domain={[0, 100]}
               />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: '#1F2937', 
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#1F2937',
                   border: '1px solid #374151',
                   borderRadius: '8px'
                 }}
               />
               <Legend />
-              <Line 
-                type="monotone" 
-                dataKey="memory" 
-                stroke="#34D399" 
+              <Line
+                type="monotone"
+                dataKey="memory"
+                stroke="#34D399"
                 strokeWidth={2}
                 name="Memory %"
                 dot={false}
