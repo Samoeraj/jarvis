@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import VoiceInterface from '../components/VoiceInterface';
 
 interface SystemMetrics {
   memory_total_gb: number;
@@ -116,6 +117,11 @@ export default function Dashboard() {
             {connected ? 'Connected' : 'Disconnected'}
           </span>
         </div>
+      </div>
+
+      {/* Voice Interface */}
+      <div className="mb-8">
+        <VoiceInterface />
       </div>
 
       {/* Metrics Grid */}
