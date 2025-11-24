@@ -27,22 +27,31 @@ export default function Dashboard() {
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    // Connect to WebSocket
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let isMounted = true;
+
     const connectWebSocket = () => {
-      const ws = new WebSocket('ws://localhost:8000/ws');
+      // Don't connect if component is unmounted
+      if (!isMounted) return;
+
+      ws = new WebSocket('ws://localhost:8000/ws');
       wsRef.current = ws;
 
       ws.onopen = () => {
         console.log('✅ WebSocket connected');
-        setConnected(true);
+        if (isMounted) {
+          setConnected(true);
+        }
       };
 
       ws.onmessage = (event) => {
+        if (!isMounted) return;
+
         try {
           const data: SystemMetrics = JSON.parse(event.data);
           setMetrics(data);
 
-          // Add to history
           const timestamp = new Date(data.timestamp);
           const timeString = timestamp.toLocaleTimeString();
 
@@ -55,7 +64,6 @@ export default function Dashboard() {
                 memory: parseFloat(data.memory_usage_percent.toFixed(1)),
               },
             ];
-            // Keep only last 30 points
             return newHistory.slice(-30);
           });
         } catch (error) {
@@ -65,26 +73,42 @@ export default function Dashboard() {
 
       ws.onerror = (error) => {
         console.error('❌ WebSocket error:', error);
-        setConnected(false);
+        if (isMounted) {
+          setConnected(false);
+        }
       };
 
       ws.onclose = () => {
-        console.log('🔌 WebSocket closed, reconnecting in 3s...');
-        setConnected(false);
-        // Auto-reconnect after 3 seconds
-        setTimeout(connectWebSocket, 3000);
+        console.log('🔌 WebSocket closed');
+        if (isMounted) {
+          setConnected(false);
+          // Only reconnect if component is still mounted
+          reconnectTimeout = setTimeout(() => {
+            if (isMounted) {
+              console.log('🔄 Attempting to reconnect...');
+              connectWebSocket();
+            }
+          }, 3000);
+        }
       };
     };
 
     connectWebSocket();
 
-    // Cleanup on unmount
+    // Cleanup function
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
+      console.log('🧹 Cleaning up WebSocket connection');
+      isMounted = false;
+
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+
+      if (ws) {
+        ws.close();
       }
     };
-  }, []);
+  }, []); // Empty dependency array - only run once
 
   if (!connected && !metrics) {
     return (
