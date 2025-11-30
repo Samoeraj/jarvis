@@ -1,0 +1,10 @@
+prefix=/Users/samtimmermans/Desktop/Coding/jarvis/backend/target/debug/build/llama-cpp-sys-2-f5a1a342ee2252bb/out
+exec_prefix=/Users/samtimmermans/Desktop/Coding/jarvis/backend/target/debug/build/llama-cpp-sys-2-f5a1a342ee2252bb/out
+libdir=/Users/samtimmermans/Desktop/Coding/jarvis/backend/target/debug/build/llama-cpp-sys-2-f5a1a342ee2252bb/out/lib
+includedir=/Users/samtimmermans/Desktop/Coding/jarvis/backend/target/debug/build/llama-cpp-sys-2-f5a1a342ee2252bb/out/include
+
+Name: llama
+Description: Port of Facebook's LLaMA model in C/C++
+Version: 0.0.0
+Libs: -L${libdir} -lggml -lggml-base -lllama
+Cflags: -I${includedir}
